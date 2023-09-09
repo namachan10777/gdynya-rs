@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "server",
+    "credential-provider",
+]
+
+resolver = "2"
