@@ -105,10 +105,10 @@ impl S3Store {
     async fn put_index_entry(
         &self,
         index: &GetIndexResponse,
-    ) -> Result<GetIndexResponse, HttpError> {
-        let index = self
+    ) -> Result<(), HttpError> {
+        self
             .client
-            .get_object()
+            .put_object()
             .bucket(&self.bucket)
             .key(format!(
                 "index/{}/{}",
@@ -119,15 +119,12 @@ impl S3Store {
                     .normalized,
                 index.vers
             ))
+            .content_type("application/json")
+            .body(serde_json::to_vec(index).unwrap().into())
             .send()
             .await
-            .http_error(StatusCode::INTERNAL_SERVER_ERROR)?
-            .body
-            .collect()
-            .await
-            .http_error(StatusCode::INTERNAL_SERVER_ERROR)?
-            .into_bytes();
-        serde_json::from_slice(index.as_bytes()).http_error(StatusCode::INTERNAL_SERVER_ERROR)
+            .http_error(StatusCode::INTERNAL_SERVER_ERROR)?;
+        Ok(())
     }
 }
 
@@ -163,7 +160,7 @@ impl super::Store for S3Store {
             .client
             .get_object()
             .bucket(&self.bucket)
-            .key(format!("crate/{}/{version}.crate", name.normalized))
+            .key(format!("crate/{}/{version}", name.normalized))
             .send()
             .await
             .http_error(StatusCode::NOT_FOUND)?
@@ -209,7 +206,7 @@ impl super::Store for S3Store {
             .put_object()
             .bucket(self.bucket.clone())
             .body(body.into())
-            .key(format!("crate/{name}/{ver}.crate"))
+            .key(format!("crate/{name}/{ver}"))
             .content_type("application/gzip")
             .send()
             .await
@@ -223,7 +220,7 @@ impl super::Store for S3Store {
         let indices = indices
             .into_iter()
             .map(|key| {
-                key.strip_prefix(&name.normalized)
+                key.strip_prefix(&format!("index/{}/", name.normalized))
                     .map(ToString::to_string)
                     .http_error_with(StatusCode::INTERNAL_SERVER_ERROR, || "invalid s3 prefix")
             })

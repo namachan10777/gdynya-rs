@@ -13,6 +13,8 @@ services:
       - AWS_DEFAULT_REGION=ap-northeast-1
     ports:
       - 8080:8080
+    depends_on:
+      - minio
   configure-minio:
     image: public.ecr.aws/aws-cli/aws-cli
     command: s3api create-bucket --endpoint http://minio:9100 --bucket prates
@@ -24,7 +26,7 @@ services:
       - minio
   minio:
     image: minio/minio:latest
-    command: server --address 0.0.0.0:9100 /data
+    command: server --address 0.0.0.0:9100 --console-address 0.0.0.0:9200 /data
     volumes:
       - type: volume
         source: prates
@@ -34,5 +36,11 @@ services:
       - MINIO_ROOT_PASSWORD=prates-io-password
     ports:
       - 9100:9100
+      - 9200:9200
+
+  ui:
+    build: ui
+    ports:
+      - 3000:3000
 volumes:
   prates: {}
