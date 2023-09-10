@@ -4,8 +4,9 @@ use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    types::{CrateName, RegistryUser},
-    HttpError, ToHttpError, ToHttpErrorOption,
+    api_schema::{CrateName, RegistryUser},
+    axum_aux::RawAuthorization,
+    HttpError, ResponseValidatable, ToHttpError, ToHttpErrorOption,
 };
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -18,6 +19,8 @@ pub enum Rule {
 
 mod permission_test {
     use serde::Deserialize;
+
+    use crate::ResponseValidatable;
 
     #[derive(Deserialize)]
     struct GhUserResponse {
@@ -32,6 +35,8 @@ mod permission_test {
             .header("accept", "application/vnd.github+json")
             .send()
             .await?
+            .validate()
+            .await?
             .json::<GhUserResponse>()
             .await?;
         Ok(user.login)
@@ -45,6 +50,8 @@ mod permission_test {
             .header("x-github-api-version", "2022-11-28")
             .header("accept", "application/vnd.github+json")
             .send()
+            .await?
+            .validate()
             .await?
             .json::<Vec<GhUserResponse>>()
             .await?;
@@ -123,10 +130,10 @@ struct GhUserResponse {
 
 #[async_trait::async_trait]
 impl super::Auth for GitHubAuth {
-    async fn readable(&self, token: &str, name: &CrateName) -> Result<(), HttpError> {
+    async fn readable(&self, token: &RawAuthorization, name: &CrateName) -> Result<(), HttpError> {
         let key = CacheKey {
             crate_name: name.normalized.clone(),
-            token: token.to_string(),
+            token: token.value().to_string(),
         };
         let result = if let Some(result) = self.read_cache.get(&key) {
             result
@@ -151,10 +158,10 @@ impl super::Auth for GitHubAuth {
             })
         }
     }
-    async fn writable(&self, token: &str, name: &CrateName) -> Result<(), HttpError> {
+    async fn writable(&self, token: &RawAuthorization, name: &CrateName) -> Result<(), HttpError> {
         let key = CacheKey {
             crate_name: name.normalized.clone(),
-            token: token.to_string(),
+            token: token.value().to_string(),
         };
         let result = if let Some(result) = self.write_cache.get(&key) {
             result
@@ -179,16 +186,22 @@ impl super::Auth for GitHubAuth {
             })
         }
     }
-    async fn as_registry_user(&self, token: &str, user: &str) -> Result<RegistryUser, HttpError> {
+    async fn as_registry_user(
+        &self,
+        token: &RawAuthorization,
+        user: &str,
+    ) -> Result<RegistryUser, HttpError> {
         let user = reqwest::Client::new()
             .get(format!("https://api.github.com/users/{user}"))
-            .bearer_auth(token)
+            .bearer_auth(token.value())
             .header("user-agent", "prates-io")
             .header("x-github-api-version", "2022-11-28")
             .header("accept", "application/vnd.github+json")
             .send()
             .await
             .http_error(StatusCode::FORBIDDEN)?
+            .validate()
+            .await?
             .json::<GhUserResponse>()
             .await
             .http_error(StatusCode::INTERNAL_SERVER_ERROR)?;

@@ -1,6 +1,7 @@
 use crate::{
-    index_schema::{GetIndexResponse, PostIndexRequest},
-    types::{CrateName, QueriedPackage, SearchCratesQuery},
+    api_schema::{
+        CrateName, GetIndexResponse, PostIndexRequest, QueriedPackage, SearchCratesQuery,
+    },
     HttpError,
 };
 

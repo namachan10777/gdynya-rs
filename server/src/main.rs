@@ -6,8 +6,8 @@ use std::{
 
 use axum::{
     extract,
-    headers::{Header, Host},
-    http::{HeaderMap, HeaderValue, Request, StatusCode},
+    headers::Host,
+    http::{Request, StatusCode},
     middleware::Next,
     response::IntoResponse,
     routing, Json, Router, TypedHeader,
@@ -18,15 +18,18 @@ use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use server::{
+    api_schema::{self, CrateName, SearchCratesQuery},
     auth::Auth,
-    index_schema,
+    axum_aux::{
+        CustomTypedHeader, OptionalHeader, RawAuthorization, XForwardedHost, XForwardedProto,
+    },
     store::Store,
-    types::{CrateName, SearchCratesQuery},
     HttpError, ToHttpError,
 };
 use tokio::fs;
 use tracing::{error, info};
 use tracing_subscriber::{prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt};
+use valuable::Valuable;
 
 #[derive(Parser)]
 struct Opts {
@@ -40,53 +43,30 @@ struct Opts {
     rules: PathBuf,
 }
 
-#[derive(Serialize, Clone)]
-struct IndexConfig {
-    dl: String,
-    api: String,
-    #[serde(rename = "auth-required")]
-    auth_required: bool,
-}
-
 #[derive(Clone)]
 struct State<S, A> {
-    addr: SocketAddr,
     store: S,
     auth: A,
 }
 
 // configは認証の必要なし
-async fn config<S, A>(
+async fn config(
     TypedHeader(host): extract::TypedHeader<Host>,
-    headers: HeaderMap,
-    extract::State(state): extract::State<State<S, A>>,
-) -> Result<Json<IndexConfig>, HttpError> {
-    let host = if let Some(x_forwared_for) = headers.get("x-forwarded-host") {
-        x_forwared_for
-            .to_str()
-            .http_error(StatusCode::BAD_GATEWAY)?
-            .to_string()
-    } else {
-        host.hostname().to_string()
-    };
-    let proto = if let Some(x_forwarded_proto) = headers.get("x-forwarded-proto") {
-        x_forwarded_proto
-            .to_str()
-            .http_error(StatusCode::BAD_GATEWAY)?
-            .to_string()
-    } else {
-        "http".to_string()
-    };
-    let host = if host == "localhost" {
-        format!("{host}:{}", state.addr.port())
-    } else {
-        host
-    };
-    Ok(Json(IndexConfig {
-        dl: format!("{proto}://{host}/api/v1/crates"),
-        api: format!("{proto}://{host}"),
-        auth_required: true,
-    }))
+    CustomTypedHeader(OptionalHeader(x_forwarded_host)): CustomTypedHeader<
+        OptionalHeader<XForwardedHost>,
+    >,
+    CustomTypedHeader(OptionalHeader(x_forwarded_proto)): CustomTypedHeader<
+        OptionalHeader<XForwardedProto>,
+    >,
+) -> Result<Json<api_schema::Config>, HttpError> {
+    let host = x_forwarded_host
+        .map(|host| host.0)
+        .unwrap_or_else(|| host.to_string());
+    let proto = x_forwarded_proto
+        .map(|proto| proto.0)
+        .unwrap_or_else(|| "http".to_string());
+    let proto: api_schema::HttpProtocol = proto.parse().http_error(StatusCode::BAD_GATEWAY)?;
+    Ok(Json(api_schema::Config::new(proto, &host)))
 }
 
 #[cfg(not(unix))]
@@ -97,7 +77,7 @@ async fn wait_shutdown() {
 async fn get_index<S: Store, A: Auth>(
     state: &State<S, A>,
     name: &CrateName,
-    token: &str,
+    token: &RawAuthorization,
 ) -> Result<String, HttpError> {
     state.auth.readable(token, name).await?;
     let index = state.store.get_index(name).await?;
@@ -108,37 +88,8 @@ async fn get_index<S: Store, A: Auth>(
     Ok(response)
 }
 
-struct RawAuthorization(String);
-
-impl Header for RawAuthorization {
-    fn name() -> &'static axum::http::HeaderName {
-        &axum::http::header::AUTHORIZATION
-    }
-
-    fn decode<'i, I>(values: &mut I) -> Result<Self, axum::headers::Error>
-    where
-        Self: Sized,
-        I: Iterator<Item = &'i HeaderValue>,
-    {
-        let value = values.next().ok_or_else(axum::headers::Error::invalid)?;
-        Ok(Self(
-            value
-                .to_str()
-                .map_err(|_| axum::headers::Error::invalid())?
-                .trim()
-                .to_string(),
-        ))
-    }
-
-    fn encode<E: Extend<HeaderValue>>(&self, values: &mut E) {
-        let mut value = HeaderValue::from_str(&self.0).unwrap();
-        value.set_sensitive(true);
-        values.extend(std::iter::once(value))
-    }
-}
-
 async fn get_index_len_1<S: Store, A: Auth>(
-    extract::TypedHeader(RawAuthorization(token)): extract::TypedHeader<RawAuthorization>,
+    extract::TypedHeader(token): extract::TypedHeader<RawAuthorization>,
     extract::State(state): extract::State<State<S, A>>,
     extract::Path(name): extract::Path<CrateName>,
 ) -> impl IntoResponse {
@@ -146,7 +97,7 @@ async fn get_index_len_1<S: Store, A: Auth>(
 }
 
 async fn get_index_len_2<S: Store, A: Auth>(
-    extract::TypedHeader(RawAuthorization(token)): extract::TypedHeader<RawAuthorization>,
+    extract::TypedHeader(token): extract::TypedHeader<RawAuthorization>,
     extract::State(state): extract::State<State<S, A>>,
     extract::Path(name): extract::Path<CrateName>,
 ) -> impl IntoResponse {
@@ -154,7 +105,7 @@ async fn get_index_len_2<S: Store, A: Auth>(
 }
 
 async fn get_index_len_3<S: Store, A: Auth>(
-    extract::TypedHeader(RawAuthorization(token)): extract::TypedHeader<RawAuthorization>,
+    extract::TypedHeader(token): extract::TypedHeader<RawAuthorization>,
     extract::State(state): extract::State<State<S, A>>,
     extract::Path((_, name)): extract::Path<(char, CrateName)>,
 ) -> impl IntoResponse {
@@ -162,7 +113,7 @@ async fn get_index_len_3<S: Store, A: Auth>(
 }
 
 async fn get_index_len_at_least_4<S: Store, A: Auth>(
-    extract::TypedHeader(RawAuthorization(token)): extract::TypedHeader<RawAuthorization>,
+    extract::TypedHeader(token): extract::TypedHeader<RawAuthorization>,
     extract::State(state): extract::State<State<S, A>>,
     extract::Path((_, _, name)): extract::Path<(String, String, CrateName)>,
 ) -> impl IntoResponse {
@@ -170,7 +121,7 @@ async fn get_index_len_at_least_4<S: Store, A: Auth>(
 }
 
 async fn publish_crate<S: Store, A: Auth>(
-    extract::TypedHeader(RawAuthorization(token)): extract::TypedHeader<RawAuthorization>,
+    extract::TypedHeader(token): extract::TypedHeader<RawAuthorization>,
     extract::State(state): extract::State<State<S, A>>,
     mut stream: extract::BodyStream,
 ) -> Result<StatusCode, HttpError> {
@@ -189,15 +140,14 @@ async fn publish_crate<S: Store, A: Auth>(
     full.read_exact(&mut crate_archive)
         .http_error(StatusCode::BAD_REQUEST)?;
 
-    let index: index_schema::PostIndexRequest =
+    let index: api_schema::PostIndexRequest =
         serde_json::from_slice(&index).http_error(StatusCode::BAD_REQUEST)?;
 
-    let name = index.name.parse().http_error(StatusCode::BAD_REQUEST)?;
-    state.auth.writable(&token, &name).await?;
+    state.auth.writable(&token, &index.name).await?;
     state.store.put(&index, crate_archive).await?;
 
     info!(
-        name = index.name,
+        name = index.name.as_value(),
         version = index.vers.to_string(),
         "publish"
     );
@@ -211,7 +161,7 @@ struct YankResponse {
 }
 
 async fn yank_crate<S: Store, A: Auth>(
-    extract::TypedHeader(RawAuthorization(token)): extract::TypedHeader<RawAuthorization>,
+    extract::TypedHeader(token): extract::TypedHeader<RawAuthorization>,
     extract::State(state): extract::State<State<S, A>>,
     extract::Path((name, ver)): extract::Path<(CrateName, semver::Version)>,
 ) -> Result<impl IntoResponse, HttpError> {
@@ -221,7 +171,7 @@ async fn yank_crate<S: Store, A: Auth>(
 }
 
 async fn unyank_crate<S: Store, A: Auth>(
-    extract::TypedHeader(RawAuthorization(token)): extract::TypedHeader<RawAuthorization>,
+    extract::TypedHeader(token): extract::TypedHeader<RawAuthorization>,
     extract::State(state): extract::State<State<S, A>>,
     extract::Path((name, ver)): extract::Path<(CrateName, semver::Version)>,
 ) -> Result<impl IntoResponse, HttpError> {
@@ -231,7 +181,7 @@ async fn unyank_crate<S: Store, A: Auth>(
 }
 
 async fn get_owners<S: Store, A: Auth + Clone>(
-    extract::TypedHeader(RawAuthorization(token)): extract::TypedHeader<RawAuthorization>,
+    extract::TypedHeader(token): extract::TypedHeader<RawAuthorization>,
     extract::State(state): extract::State<State<S, A>>,
     extract::Path(name): extract::Path<CrateName>,
 ) -> Result<impl IntoResponse, HttpError> {
@@ -271,7 +221,7 @@ fn natural_human_names(names: &[String]) -> String {
 }
 
 async fn add_owner<S: Store, A: Auth>(
-    extract::TypedHeader(RawAuthorization(token)): extract::TypedHeader<RawAuthorization>,
+    extract::TypedHeader(token): extract::TypedHeader<RawAuthorization>,
     extract::State(state): extract::State<State<S, A>>,
     extract::Path(name): extract::Path<CrateName>,
     Json(req): Json<AddOwnerRequest>,
@@ -288,7 +238,7 @@ async fn add_owner<S: Store, A: Auth>(
 }
 
 async fn delete_owner<S: Store, A: Auth>(
-    extract::TypedHeader(RawAuthorization(token)): extract::TypedHeader<RawAuthorization>,
+    extract::TypedHeader(token): extract::TypedHeader<RawAuthorization>,
     extract::State(state): extract::State<State<S, A>>,
     extract::Path(name): extract::Path<CrateName>,
     Json(req): Json<AddOwnerRequest>,
@@ -305,7 +255,7 @@ async fn delete_owner<S: Store, A: Auth>(
 }
 
 async fn get_crate<S: Store, A: Auth>(
-    extract::TypedHeader(RawAuthorization(token)): extract::TypedHeader<RawAuthorization>,
+    extract::TypedHeader(token): extract::TypedHeader<RawAuthorization>,
     extract::State(state): extract::State<State<S, A>>,
     extract::Path((name, ver)): extract::Path<(CrateName, semver::Version)>,
 ) -> impl IntoResponse {
@@ -314,7 +264,7 @@ async fn get_crate<S: Store, A: Auth>(
 }
 
 async fn search_crates<S: Store, A: Auth + Clone>(
-    extract::TypedHeader(RawAuthorization(token)): extract::TypedHeader<RawAuthorization>,
+    extract::TypedHeader(token): extract::TypedHeader<RawAuthorization>,
     extract::State(state): extract::State<State<S, A>>,
     extract::Query(query): extract::Query<SearchCratesQuery>,
 ) -> Result<impl IntoResponse, HttpError> {
@@ -378,11 +328,7 @@ async fn run(opts: Opts) -> anyhow::Result<()> {
     let auth = server::auth::github::GitHubAuth::new_from_config(auth_rules);
     store.health_check().await?;
     info!("store_healthcheck_passed");
-    let state = State {
-        addr: opts.addr,
-        store,
-        auth,
-    };
+    let state = State { store, auth };
 
     let v1_api = Router::new()
         .route("/crates/new", routing::put(publish_crate))

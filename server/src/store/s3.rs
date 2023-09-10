@@ -7,8 +7,10 @@ use tracing::{debug, info};
 use valuable::Valuable;
 
 use crate::{
-    index_schema::{GetDependency, GetIndexResponse, PostIndexRequest},
-    types::{CrateName, QueriedPackage, SearchCratesQuery},
+    api_schema::{
+        CrateName, GetDependency, GetIndexResponse, PostIndexRequest, QueriedPackage,
+        SearchCratesQuery,
+    },
     HttpError, ToHttpError, ToHttpErrorOption,
 };
 
@@ -106,15 +108,7 @@ impl S3Store {
         self.client
             .put_object()
             .bucket(&self.bucket)
-            .key(format!(
-                "index/{}/{}",
-                index
-                    .name
-                    .parse::<CrateName>()
-                    .http_error(StatusCode::BAD_REQUEST)?
-                    .normalized,
-                index.vers
-            ))
+            .key(format!("index/{}/{}", index.name.normalized, index.vers))
             .content_type("application/json")
             .body(serde_json::to_vec(index).unwrap().into())
             .send()
@@ -202,7 +196,7 @@ impl super::Store for S3Store {
             .put_object()
             .bucket(self.bucket.clone())
             .body(body.into())
-            .key(format!("crate/{name}/{ver}"))
+            .key(format!("crate/{}/{ver}", name.normalized))
             .content_type("application/gzip")
             .send()
             .await
