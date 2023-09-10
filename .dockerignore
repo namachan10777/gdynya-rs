@@ -1,5 +1,5 @@
 target
-ui/node_modules
-ui/styled-system
-ui/.next
-ui/.next-env.d.ts
+gdynya-ui/node_modules
+gdynya-ui/styled-system
+gdynya-ui/.next
+gdynya-ui/.next-env.d.ts

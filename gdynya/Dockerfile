@@ -18,17 +18,16 @@ RUN apt-get update && \
     apt-get install -qy ca-certificates curl && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
-ARG USERNAME=prates
-ARG GROUPNAME=prates
+ARG USERNAME=gdynya
+ARG GROUPNAME=gdynya
 ARG UID=1000
 ARG GID=1000
 RUN groupadd -g $GID $GROUPNAME && \
     useradd -m -s /bin/bash -u $UID -g $GID $USERNAME
 USER $USERNAME
-COPY --from=builder /work/target/release/gdynya /prates-io
-COPY server/rules.example.yaml /etc/prates/rules.yaml
+COPY --from=builder /work/target/release/gdynya /gdynya
 EXPOSE 8080
-ENTRYPOINT [ "/prates-io" ]
+ENTRYPOINT [ "/gdynya" ]
 ENV ADDR=0.0.0.0:8080
-ENV RULES=/etc/prates/rules.yaml
-ENV RUST_LOG=server=Info
+ENV RULES=/etc/gdynya/rules.yaml
+ENV RUST_LOG=gdynya=Info

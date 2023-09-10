@@ -1,3 +1,4 @@
+name: Test
 on: [push, pull_request]
 jobs:
   rust-test:
@@ -12,6 +13,20 @@ jobs:
       - run: cargo test --all-features
       - run: cargo fmt -- --check
       - run: cargo clippy --all-features -- -D warnings
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v4
+        with:
+          push: false
+          context: .
+          file: gdynya/Dockerfile
   ui-test:
     runs-on: ubuntu-latest
     steps:
