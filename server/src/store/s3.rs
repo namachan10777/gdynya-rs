@@ -102,12 +102,8 @@ impl S3Store {
         serde_json::from_slice(index.as_bytes()).http_error(StatusCode::INTERNAL_SERVER_ERROR)
     }
 
-    async fn put_index_entry(
-        &self,
-        index: &GetIndexResponse,
-    ) -> Result<(), HttpError> {
-        self
-            .client
+    async fn put_index_entry(&self, index: &GetIndexResponse) -> Result<(), HttpError> {
+        self.client
             .put_object()
             .bucket(&self.bucket)
             .key(format!(

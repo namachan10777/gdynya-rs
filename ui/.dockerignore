@@ -1,0 +1,4 @@
+node_modules
+styled-system
+.next
+.next-env.d.ts

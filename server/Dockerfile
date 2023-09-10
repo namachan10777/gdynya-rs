@@ -26,7 +26,9 @@ RUN groupadd -g $GID $GROUPNAME && \
     useradd -m -s /bin/bash -u $UID -g $GID $USERNAME
 USER $USERNAME
 COPY --from=builder /work/target/release/server /prates-io
+COPY server/rules.example.yaml /etc/prates/rules.yaml
 EXPOSE 8080
 ENTRYPOINT [ "/prates-io" ]
 ENV ADDR=0.0.0.0:8080
+ENV RULES=/etc/prates/rules.yaml
 ENV RUST_LOG=server=Info

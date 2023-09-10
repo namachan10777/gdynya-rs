@@ -1,3 +1,5 @@
-target/*
-ui/node_modules/*
-ui/styled-system/*
+target
+ui/node_modules
+ui/styled-system
+ui/.next
+ui/.next-env.d.ts

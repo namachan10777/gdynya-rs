@@ -11,6 +11,7 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN mv next.config.docker.js next.config.js
+RUN pnpm run prepare
 RUN pnpm run build
 
 FROM base AS runner

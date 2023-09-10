@@ -1,0 +1,6 @@
+server:
+  read: !is
+      user: namachan10777
+  write: !is
+      user: namachan10777
+

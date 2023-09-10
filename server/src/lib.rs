@@ -3,6 +3,7 @@ use std::fmt::{Debug, Display};
 use axum::{http::StatusCode, response::IntoResponse, Json};
 use serde::{ser::SerializeStruct, Serialize};
 
+pub mod auth;
 pub mod index_schema;
 pub mod store;
 pub mod types;

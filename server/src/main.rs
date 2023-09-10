@@ -1,12 +1,13 @@
 use std::{
     io::{self, Read},
     net::SocketAddr,
+    path::PathBuf,
 };
 
 use axum::{
     extract,
-    headers::Host,
-    http::{HeaderMap, Request, StatusCode},
+    headers::{Header, Host},
+    http::{HeaderMap, HeaderValue, Request, StatusCode},
     middleware::Next,
     response::IntoResponse,
     routing, Json, Router, TypedHeader,
@@ -17,11 +18,13 @@ use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use server::{
+    auth::Auth,
     index_schema,
     store::Store,
     types::{CrateName, SearchCratesQuery},
     HttpError, ToHttpError,
 };
+use tokio::fs;
 use tracing::{error, info};
 use tracing_subscriber::{prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt};
 
@@ -33,24 +36,30 @@ struct Opts {
     objstore_endpoint: Option<String>,
     #[clap(long, env)]
     objstore: String,
+    #[clap(long, env)]
+    rules: PathBuf,
 }
 
 #[derive(Serialize, Clone)]
 struct IndexConfig {
     dl: String,
     api: String,
+    #[serde(rename = "auth-required")]
+    auth_required: bool,
 }
 
 #[derive(Clone)]
-struct State<S> {
+struct State<S, A> {
     addr: SocketAddr,
     store: S,
+    auth: A,
 }
 
-async fn config<S>(
+// configは認証の必要なし
+async fn config<S, A>(
     TypedHeader(host): extract::TypedHeader<Host>,
     headers: HeaderMap,
-    extract::State(state): extract::State<State<S>>,
+    extract::State(state): extract::State<State<S, A>>,
 ) -> Result<Json<IndexConfig>, HttpError> {
     let host = if let Some(x_forwared_for) = headers.get("x-forwarded-host") {
         x_forwared_for
@@ -76,6 +85,7 @@ async fn config<S>(
     Ok(Json(IndexConfig {
         dl: format!("{proto}://{host}/api/v1/crates"),
         api: format!("{proto}://{host}"),
+        auth_required: true,
     }))
 }
 
@@ -84,7 +94,12 @@ async fn wait_shutdown() {
     tokio::signal::ctrl_c().await.expect("ctrl_c")
 }
 
-async fn get_index<S: Store>(state: &State<S>, name: &CrateName) -> Result<String, HttpError> {
+async fn get_index<S: Store, A: Auth>(
+    state: &State<S, A>,
+    name: &CrateName,
+    token: &str,
+) -> Result<String, HttpError> {
+    state.auth.readable(token, name).await?;
     let index = state.store.get_index(name).await?;
     let mut response = String::new();
     for index in index {
@@ -93,36 +108,70 @@ async fn get_index<S: Store>(state: &State<S>, name: &CrateName) -> Result<Strin
     Ok(response)
 }
 
-async fn get_index_len_1<S: Store>(
-    extract::State(state): extract::State<State<S>>,
-    extract::Path(name): extract::Path<CrateName>,
-) -> impl IntoResponse {
-    get_index(&state, &name).await
+struct RawAuthorization(String);
+
+impl Header for RawAuthorization {
+    fn name() -> &'static axum::http::HeaderName {
+        &axum::http::header::AUTHORIZATION
+    }
+
+    fn decode<'i, I>(values: &mut I) -> Result<Self, axum::headers::Error>
+    where
+        Self: Sized,
+        I: Iterator<Item = &'i HeaderValue>,
+    {
+        let value = values.next().ok_or_else(axum::headers::Error::invalid)?;
+        Ok(Self(
+            value
+                .to_str()
+                .map_err(|_| axum::headers::Error::invalid())?
+                .trim()
+                .to_string(),
+        ))
+    }
+
+    fn encode<E: Extend<HeaderValue>>(&self, values: &mut E) {
+        let mut value = HeaderValue::from_str(&self.0).unwrap();
+        value.set_sensitive(true);
+        values.extend(std::iter::once(value))
+    }
 }
 
-async fn get_index_len_2<S: Store>(
-    extract::State(state): extract::State<State<S>>,
+async fn get_index_len_1<S: Store, A: Auth>(
+    extract::TypedHeader(RawAuthorization(token)): extract::TypedHeader<RawAuthorization>,
+    extract::State(state): extract::State<State<S, A>>,
     extract::Path(name): extract::Path<CrateName>,
 ) -> impl IntoResponse {
-    get_index(&state, &name).await
+    get_index(&state, &name, &token).await
 }
 
-async fn get_index_len_3<S: Store>(
-    extract::State(state): extract::State<State<S>>,
+async fn get_index_len_2<S: Store, A: Auth>(
+    extract::TypedHeader(RawAuthorization(token)): extract::TypedHeader<RawAuthorization>,
+    extract::State(state): extract::State<State<S, A>>,
+    extract::Path(name): extract::Path<CrateName>,
+) -> impl IntoResponse {
+    get_index(&state, &name, &token).await
+}
+
+async fn get_index_len_3<S: Store, A: Auth>(
+    extract::TypedHeader(RawAuthorization(token)): extract::TypedHeader<RawAuthorization>,
+    extract::State(state): extract::State<State<S, A>>,
     extract::Path((_, name)): extract::Path<(char, CrateName)>,
 ) -> impl IntoResponse {
-    get_index(&state, &name).await
+    get_index(&state, &name, &token).await
 }
 
-async fn get_index_len_at_least_4<S: Store>(
-    extract::State(state): extract::State<State<S>>,
+async fn get_index_len_at_least_4<S: Store, A: Auth>(
+    extract::TypedHeader(RawAuthorization(token)): extract::TypedHeader<RawAuthorization>,
+    extract::State(state): extract::State<State<S, A>>,
     extract::Path((_, _, name)): extract::Path<(String, String, CrateName)>,
 ) -> impl IntoResponse {
-    get_index(&state, &name).await
+    get_index(&state, &name, &token).await
 }
 
-async fn publish_crate<S: Store>(
-    extract::State(state): extract::State<State<S>>,
+async fn publish_crate<S: Store, A: Auth>(
+    extract::TypedHeader(RawAuthorization(token)): extract::TypedHeader<RawAuthorization>,
+    extract::State(state): extract::State<State<S, A>>,
     mut stream: extract::BodyStream,
 ) -> Result<StatusCode, HttpError> {
     let mut full = Vec::new();
@@ -143,6 +192,8 @@ async fn publish_crate<S: Store>(
     let index: index_schema::PostIndexRequest =
         serde_json::from_slice(&index).http_error(StatusCode::BAD_REQUEST)?;
 
+    let name = index.name.parse().http_error(StatusCode::BAD_REQUEST)?;
+    state.auth.writable(&token, &name).await?;
     state.store.put(&index, crate_archive).await?;
 
     info!(
@@ -159,29 +210,46 @@ struct YankResponse {
     ok: bool,
 }
 
-async fn yank_crate<S: Store>(
-    extract::State(state): extract::State<State<S>>,
+async fn yank_crate<S: Store, A: Auth>(
+    extract::TypedHeader(RawAuthorization(token)): extract::TypedHeader<RawAuthorization>,
+    extract::State(state): extract::State<State<S, A>>,
     extract::Path((name, ver)): extract::Path<(CrateName, semver::Version)>,
 ) -> Result<impl IntoResponse, HttpError> {
+    state.auth.writable(&token, &name).await?;
     state.store.set_yank(&name, ver, true).await?;
     Ok((StatusCode::OK, Json(json!({ "ok": true }))))
 }
 
-async fn unyank_crate<S: Store>(
-    extract::State(state): extract::State<State<S>>,
+async fn unyank_crate<S: Store, A: Auth>(
+    extract::TypedHeader(RawAuthorization(token)): extract::TypedHeader<RawAuthorization>,
+    extract::State(state): extract::State<State<S, A>>,
     extract::Path((name, ver)): extract::Path<(CrateName, semver::Version)>,
 ) -> Result<impl IntoResponse, HttpError> {
+    state.auth.writable(&token, &name).await?;
     state.store.set_yank(&name, ver, false).await?;
     Ok((StatusCode::OK, Json(json!({ "ok": true }))))
 }
 
-async fn get_owners<S: Store>(
-    extract::State(_state): extract::State<State<S>>,
-    extract::Path(_name): extract::Path<CrateName>,
+async fn get_owners<S: Store, A: Auth + Clone>(
+    extract::TypedHeader(RawAuthorization(token)): extract::TypedHeader<RawAuthorization>,
+    extract::State(state): extract::State<State<S, A>>,
+    extract::Path(name): extract::Path<CrateName>,
 ) -> Result<impl IntoResponse, HttpError> {
-    //let owners = state.store.get_owners(&name).await?;
-    //Ok((StatusCode::OK, Json(json!({ "users": owners }))))
-    Ok(StatusCode::NOT_FOUND)
+    state.auth.readable(&token, &name).await?;
+    let owners = state.store.get_owners(&name).await?;
+    let owners = owners
+        .into_iter()
+        .map(|owner| {
+            let auth = state.auth.clone();
+            let token = token.clone();
+            async move { auth.as_registry_user(&token, &owner).await }
+        })
+        .collect::<Vec<_>>();
+    let owners = futures_util::future::join_all(owners)
+        .await
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok((StatusCode::OK, Json(json!({ "users": owners }))))
 }
 
 #[derive(Deserialize)]
@@ -202,12 +270,14 @@ fn natural_human_names(names: &[String]) -> String {
     }
 }
 
-async fn add_owner<S: Store>(
-    extract::State(state): extract::State<State<S>>,
+async fn add_owner<S: Store, A: Auth>(
+    extract::TypedHeader(RawAuthorization(token)): extract::TypedHeader<RawAuthorization>,
+    extract::State(state): extract::State<State<S, A>>,
     extract::Path(name): extract::Path<CrateName>,
     Json(req): Json<AddOwnerRequest>,
 ) -> Result<impl IntoResponse, HttpError> {
     let names = natural_human_names(&req.users);
+    state.auth.writable(&token, &name).await?;
     state.store.add_owner(&name, req.users).await?;
     Ok((
         StatusCode::OK,
@@ -217,12 +287,14 @@ async fn add_owner<S: Store>(
     ))
 }
 
-async fn delete_owner<S: Store>(
-    extract::State(state): extract::State<State<S>>,
+async fn delete_owner<S: Store, A: Auth>(
+    extract::TypedHeader(RawAuthorization(token)): extract::TypedHeader<RawAuthorization>,
+    extract::State(state): extract::State<State<S, A>>,
     extract::Path(name): extract::Path<CrateName>,
     Json(req): Json<AddOwnerRequest>,
 ) -> Result<impl IntoResponse, HttpError> {
     let names = natural_human_names(&req.users);
+    state.auth.writable(&token, &name).await?;
     state.store.delete_owner(&name, req.users).await?;
     Ok((
         StatusCode::OK,
@@ -232,18 +304,36 @@ async fn delete_owner<S: Store>(
     ))
 }
 
-async fn get_crate<S: Store>(
-    extract::State(state): extract::State<State<S>>,
+async fn get_crate<S: Store, A: Auth>(
+    extract::TypedHeader(RawAuthorization(token)): extract::TypedHeader<RawAuthorization>,
+    extract::State(state): extract::State<State<S, A>>,
     extract::Path((name, ver)): extract::Path<(CrateName, semver::Version)>,
 ) -> impl IntoResponse {
+    state.auth.readable(&token, &name).await?;
     state.store.get_crate(&name, ver).await
 }
 
-async fn search_crates<S: Store>(
-    extract::State(state): extract::State<State<S>>,
+async fn search_crates<S: Store, A: Auth + Clone>(
+    extract::TypedHeader(RawAuthorization(token)): extract::TypedHeader<RawAuthorization>,
+    extract::State(state): extract::State<State<S, A>>,
     extract::Query(query): extract::Query<SearchCratesQuery>,
 ) -> Result<impl IntoResponse, HttpError> {
     let (packages, total) = state.store.search(&query).await?;
+    let packages = futures_util::stream::iter(packages);
+    let packages = packages
+        .filter(|package| {
+            let token = token.clone();
+            let name = package.name.parse();
+            let auth = state.auth.clone();
+            async move {
+                let Ok(name) = name else {
+                    return false;
+                };
+                auth.readable(&token, &name).await.is_ok()
+            }
+        })
+        .collect::<Vec<_>>()
+        .await;
     Ok((
         StatusCode::OK,
         Json(json!({"crates": packages, "meta": { "total": total }})),
@@ -283,11 +373,15 @@ async fn access_log_on_request<B>(
 
 async fn run(opts: Opts) -> anyhow::Result<()> {
     let store = server::store::s3::S3Store::new(opts.objstore, opts.objstore_endpoint).await;
+    let auth_rules = fs::read_to_string(&opts.rules).await?;
+    let auth_rules = serde_yaml::from_str(&auth_rules)?;
+    let auth = server::auth::github::GitHubAuth::new_from_config(auth_rules);
     store.health_check().await?;
     info!("store_healthcheck_passed");
     let state = State {
         addr: opts.addr,
         store,
+        auth,
     };
 
     let v1_api = Router::new()
