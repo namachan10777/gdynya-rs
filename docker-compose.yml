@@ -3,11 +3,11 @@ services:
   server:
     build:
       context: .
-      dockerfile: server/Dockerfile
+      dockerfile: gdynya/Dockerfile
     environment:
       - OBJSTORE_ENDPOINT=http://minio:9100
       - OBJSTORE=prates
-      - RUST_LOG=server=Debug
+      - RUST_LOG=gdynya=Debug
       - AWS_ACCESS_KEY_ID=prates
       - AWS_SECRET_ACCESS_KEY=prates-io-password
       - AWS_DEFAULT_REGION=ap-northeast-1

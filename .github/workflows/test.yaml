@@ -22,11 +22,11 @@ jobs:
       - uses: actions/setup-node@v3
         with:
           cache: pnpm
-          cache-dependency-path: ui/pnpm-lock.yaml
+          cache-dependency-path: gdynya-ui/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
-        working-directory: ui
+        working-directory: gdynya-ui
       - run: pnpm run lint
-        working-directory: ui
+        working-directory: gdynya-ui
       - run: pnpm run build
-        working-directory: ui
+        working-directory: gdynya-ui
 

@@ -1,5 +1,5 @@
 [package]
-name = "server"
+name = "gdynya"
 version = "0.1.0"
 edition = "2021"
 description = "An implementation of cargo private registry for enterprise rust users"

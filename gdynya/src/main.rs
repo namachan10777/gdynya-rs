@@ -15,9 +15,7 @@ use axum::{
 use byteorder::{ReadBytesExt, LE};
 use clap::Parser;
 use futures_util::StreamExt;
-use serde::{Deserialize, Serialize};
-use serde_json::json;
-use server::{
+use gdynya::{
     api_schema::{self, CrateName, SearchCratesQuery},
     auth::Auth,
     axum_aux::{
@@ -26,6 +24,8 @@ use server::{
     store::Store,
     HttpError, ToHttpError,
 };
+use serde::{Deserialize, Serialize};
+use serde_json::json;
 use tokio::fs;
 use tracing::{error, info};
 use tracing_subscriber::{prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt};
@@ -322,10 +322,10 @@ async fn access_log_on_request<B>(
 }
 
 async fn run(opts: Opts) -> anyhow::Result<()> {
-    let store = server::store::s3::S3Store::new(opts.objstore, opts.objstore_endpoint).await;
+    let store = gdynya::store::s3::S3Store::new(opts.objstore, opts.objstore_endpoint).await;
     let auth_rules = fs::read_to_string(&opts.rules).await?;
     let auth_rules = serde_yaml::from_str(&auth_rules)?;
-    let auth = server::auth::github::GitHubAuth::new_from_config(auth_rules);
+    let auth = gdynya::auth::github::GitHubAuth::new_from_config(auth_rules);
     store.health_check().await?;
     info!("store_healthcheck_passed");
     let state = State { store, auth };
@@ -369,7 +369,7 @@ async fn main() {
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "server=Info".into()),
+                .unwrap_or_else(|_| "gdynya=Info".into()),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();

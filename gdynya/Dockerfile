@@ -11,7 +11,7 @@ WORKDIR /work
 COPY --from=plan /work/recipe.json recipe.json
 RUN cargo chef cook --release --features s3 --recipe-path recipe.json
 COPY . .
-RUN cargo build --release -p server
+RUN cargo build --release -p gdynya
 
 FROM debian:bullseye-slim
 RUN apt-get update && \
@@ -25,7 +25,7 @@ ARG GID=1000
 RUN groupadd -g $GID $GROUPNAME && \
     useradd -m -s /bin/bash -u $UID -g $GID $USERNAME
 USER $USERNAME
-COPY --from=builder /work/target/release/server /prates-io
+COPY --from=builder /work/target/release/gdynya /prates-io
 COPY server/rules.example.yaml /etc/prates/rules.yaml
 EXPOSE 8080
 ENTRYPOINT [ "/prates-io" ]

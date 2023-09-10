@@ -815,13 +815,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "credential-provider"
-version = "0.1.0"
-dependencies = [
- "cargo-credential",
-]
-
-[[package]]
 name = "crossbeam-channel"
 version = "0.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1041,6 +1034,44 @@ dependencies = [
  "pin-project-lite",
  "pin-utils",
  "slab",
+]
+
+[[package]]
+name = "gdynya"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "aws-config",
+ "aws-sdk-s3",
+ "axum",
+ "byteorder",
+ "clap",
+ "digest",
+ "futures-util",
+ "hex",
+ "moka",
+ "nom",
+ "reqwest",
+ "semver",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2",
+ "thiserror",
+ "tokio",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "valuable",
+]
+
+[[package]]
+name = "gdynya-gh-credential"
+version = "0.1.0"
+dependencies = [
+ "cargo-credential",
 ]
 
 [[package]]
@@ -2019,37 +2050,6 @@ dependencies = [
  "ryu",
  "serde",
  "unsafe-libyaml",
-]
-
-[[package]]
-name = "server"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "aws-config",
- "aws-sdk-s3",
- "axum",
- "byteorder",
- "clap",
- "digest",
- "futures-util",
- "hex",
- "moka",
- "nom",
- "reqwest",
- "semver",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2",
- "thiserror",
- "tokio",
- "toml",
- "tracing",
- "tracing-subscriber",
- "url",
- "valuable",
 ]
 
 [[package]]
