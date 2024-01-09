@@ -1,50 +1,52 @@
+use aws_config::{BehaviorVersion, SdkConfig};
+use aws_sdk_s3::primitives::ByteStream;
 use axum::http::StatusCode;
-use digest::Digest;
 use futures_util::future::join_all;
 use nom::AsBytes;
-use sha2::Sha256;
 use tracing::{debug, info};
 use valuable::Valuable;
 
 use crate::{
     api_schema::{
-        CrateName, GetDependency, GetIndexResponse, PostIndexRequest, QueriedPackage,
-        SearchCratesQuery,
+        CrateName, GetIndexResponse, PostIndexRequest, QueriedPackage, SearchCratesQuery,
     },
     HttpError, ToHttpError, ToHttpErrorOption,
 };
 
 #[derive(Clone)]
-pub struct S3Store {
-    client: aws_sdk_s3::Client,
-    bucket: String,
+pub struct AwsStore {
+    s3: aws_sdk_s3::Client,
+    s3_bucket: String,
 }
 
-impl S3Store {
-    pub async fn new(bucket: String, endpoint: Option<String>) -> Self {
-        info!(bucket, endpoint, "init_s3");
-        if let Some(endpoint) = endpoint {
-            let config = aws_config::load_from_env().await;
-            let conf = aws_sdk_s3::config::Builder::from(&config)
-                .force_path_style(true)
-                .endpoint_url(endpoint)
-                .build();
-            let client = aws_sdk_s3::Client::from_conf(conf);
-            S3Store { client, bucket }
-        } else {
-            let config = aws_config::load_from_env().await;
-            let client = aws_sdk_s3::Client::new(&config);
-            S3Store { client, bucket }
+async fn create_s3_client(config: &SdkConfig, endpoint: Option<String>) -> aws_sdk_s3::Client {
+    if let Some(endpoint) = endpoint {
+        let conf = aws_sdk_s3::config::Builder::from(config)
+            .force_path_style(true)
+            .endpoint_url(endpoint)
+            .build();
+        aws_sdk_s3::Client::from_conf(conf)
+    } else {
+        aws_sdk_s3::Client::new(config)
+    }
+}
+
+impl AwsStore {
+    pub async fn new(s3_bucket: String, s3_endpoint: Option<String>) -> Self {
+        info!(s3_bucket, s3_endpoint, "init_s3");
+        let config = aws_config::load_defaults(BehaviorVersion::latest()).await;
+        AwsStore {
+            s3_bucket,
+            s3: create_s3_client(&config, s3_endpoint).await,
         }
     }
 
-    async fn list(&self, prefix: &str) -> Result<Vec<String>, HttpError> {
+    async fn list_s3_keys(&self, prefix: &str) -> Result<Vec<String>, HttpError> {
         let response = self
-            .client
+            .s3
             .list_objects_v2()
-            //.delimiter("/")
             .prefix(prefix)
-            .bucket(&self.bucket)
+            .bucket(&self.s3_bucket)
             .send()
             .await
             .http_error(StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -58,9 +60,9 @@ impl S3Store {
         let mut continuation_token = response.next_continuation_token.clone();
         while let Some(token) = continuation_token.clone() {
             let response = self
-                .client
+                .s3
                 .list_objects_v2()
-                .bucket(&self.bucket)
+                .bucket(&self.s3_bucket)
                 .continuation_token(token)
                 .prefix(prefix)
                 //.delimiter("/")
@@ -83,15 +85,25 @@ impl S3Store {
         Ok(keys)
     }
 
+    async fn check_object_existance(&self, key: &str) -> bool {
+        self.s3
+            .head_object()
+            .bucket(&self.s3_bucket)
+            .key(key)
+            .send()
+            .await
+            .is_ok()
+    }
+
     async fn get_index_entry(
         &self,
         name: &CrateName,
         version: &semver::Version,
     ) -> Result<GetIndexResponse, HttpError> {
         let index = self
-            .client
+            .s3
             .get_object()
-            .bucket(&self.bucket)
+            .bucket(&self.s3_bucket)
             .key(format!("index/{}/{version}", name.normalized))
             .send()
             .await
@@ -105,9 +117,9 @@ impl S3Store {
     }
 
     async fn put_index_entry(&self, index: &GetIndexResponse) -> Result<(), HttpError> {
-        self.client
+        self.s3
             .put_object()
-            .bucket(&self.bucket)
+            .bucket(&self.s3_bucket)
             .key(format!("index/{}/{}", index.name.normalized, index.vers))
             .content_type("application/json")
             .body(serde_json::to_vec(index).unwrap().into())
@@ -116,11 +128,29 @@ impl S3Store {
             .http_error(StatusCode::INTERNAL_SERVER_ERROR)?;
         Ok(())
     }
+
+    async fn put_crate_archive(
+        &self,
+        name: &CrateName,
+        version: &semver::Version,
+        body: impl Into<ByteStream>,
+    ) -> Result<(), HttpError> {
+        self.s3
+            .put_object()
+            .bucket(self.s3_bucket.clone())
+            .body(body.into())
+            .key(format!("crate/{}/{version}", name.normalized))
+            .content_type("application/gzip")
+            .send()
+            .await
+            .http_error(StatusCode::INTERNAL_SERVER_ERROR)?;
+        Ok(())
+    }
 }
 
-impl super::Store for S3Store {
+impl super::Store for AwsStore {
     async fn health_check(&self) -> Result<(), HttpError> {
-        self.client
+        self.s3
             .list_buckets()
             .send()
             .await
@@ -146,9 +176,9 @@ impl super::Store for S3Store {
         version: semver::Version,
     ) -> Result<Vec<u8>, HttpError> {
         let body = self
-            .client
+            .s3
             .get_object()
-            .bucket(&self.bucket)
+            .bucket(&self.s3_bucket)
             .key(format!("crate/{}/{version}", name.normalized))
             .send()
             .await
@@ -161,50 +191,28 @@ impl super::Store for S3Store {
     }
 
     async fn put(&self, index: &PostIndexRequest, body: Vec<u8>) -> Result<(), HttpError> {
-        let ver = index.vers.clone();
-        let name = index.name.clone();
-        let mut hasher = Sha256::new();
-        hasher.update(&body);
-        let index = GetIndexResponse {
-            name: index.name.clone(),
-            vers: index.vers.clone(),
-            deps: index
-                .deps
-                .iter()
-                .map(|dep| GetDependency {
-                    name: dep.name.clone(),
-                    req: dep.version_req.clone(),
-                    features: dep.features.clone(),
-                    default_features: dep.default_features,
-                    optional: dep.optional,
-                    target: dep.target.clone(),
-                    kind: dep.kind,
-                    package: None,
-                    registry: None,
-                })
-                .collect(),
-            features: index.features.clone(),
-            links: index.links.clone(),
-            yanked: false,
-            cksum: hex::encode(hasher.finalize()),
-            v: 2,
-            rust_version: index.rust_version.clone(),
-        };
-        self.put_index_entry(&index).await?;
-        self.client
-            .put_object()
-            .bucket(self.bucket.clone())
-            .body(body.into())
-            .key(format!("crate/{}/{ver}", name.normalized))
-            .content_type("application/gzip")
-            .send()
+        if self
+            .check_object_existance(&format!("index/{}/{}", index.name.normalized, index.vers))
             .await
-            .http_error(StatusCode::INTERNAL_SERVER_ERROR)?;
+        {
+            return Err(HttpError {
+                error_type: StatusCode::BAD_REQUEST,
+                message: format!("already exists"),
+                verbose_message: format!("{}/{} already exists", index.name.original, index.vers),
+                contexts: Vec::new(),
+            });
+        }
+        let index = GetIndexResponse::new(index, &body);
+        self.put_index_entry(&index).await?;
+        self.put_crate_archive(&index.name, &index.vers, body)
+            .await?;
         Ok(())
     }
 
     async fn get_index(&self, name: &CrateName) -> Result<Vec<GetIndexResponse>, HttpError> {
-        let indices = self.list(&format!("index/{}/", name.normalized)).await?;
+        let indices = self
+            .list_s3_keys(&format!("index/{}/", name.normalized))
+            .await?;
         debug!(files = indices.as_value(), "index");
         let indices = indices
             .into_iter()
@@ -228,16 +236,17 @@ impl super::Store for S3Store {
     }
 
     async fn get_owners(&self, name: &CrateName) -> Result<Vec<String>, HttpError> {
-        self.list(&format!("owner/{}", &name.normalized)).await
+        self.list_s3_keys(&format!("owner/{}", &name.normalized))
+            .await
     }
     async fn delete_owner(&self, name: &CrateName, owner: Vec<String>) -> Result<(), HttpError> {
         let req = owner.into_iter().map(|owner| {
             let deleter = self.clone();
             async move {
                 deleter
-                    .client
+                    .s3
                     .delete_object()
-                    .bucket(self.bucket.clone())
+                    .bucket(self.s3_bucket.clone())
                     .key(format!("owner/{}/{owner}", name.normalized))
                     .send()
                     .await
@@ -255,9 +264,9 @@ impl super::Store for S3Store {
             let adder = self.clone();
             async move {
                 adder
-                    .client
+                    .s3
                     .put_object()
-                    .bucket(self.bucket.clone())
+                    .bucket(self.s3_bucket.clone())
                     .key(format!("owner/{}/{owner}", name.normalized))
                     .body(Vec::new().into())
                     .send()

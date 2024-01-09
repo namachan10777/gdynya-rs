@@ -128,7 +128,6 @@ struct GhUserResponse {
     name: String,
 }
 
-#[async_trait::async_trait]
 impl super::Auth for GitHubAuth {
     async fn readable(&self, token: &RawAuthorization, name: &CrateName) -> Result<(), HttpError> {
         let key = CacheKey {

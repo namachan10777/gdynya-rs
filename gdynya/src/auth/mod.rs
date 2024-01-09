@@ -1,3 +1,5 @@
+use futures_util::Future;
+
 use crate::{
     api_schema::{CrateName, RegistryUser},
     axum_aux::RawAuthorization,
@@ -6,13 +8,20 @@ use crate::{
 
 pub mod github;
 
-#[async_trait::async_trait]
 pub trait Auth {
-    async fn readable(&self, token: &RawAuthorization, name: &CrateName) -> Result<(), HttpError>;
-    async fn writable(&self, token: &RawAuthorization, name: &CrateName) -> Result<(), HttpError>;
-    async fn as_registry_user(
+    fn readable(
+        &self,
+        token: &RawAuthorization,
+        name: &CrateName,
+    ) -> impl Future<Output = Result<(), HttpError>>;
+    fn writable(
+        &self,
+        token: &RawAuthorization,
+        name: &CrateName,
+    ) -> impl Future<Output = Result<(), HttpError>>;
+    fn as_registry_user(
         &self,
         token: &RawAuthorization,
         user: &str,
-    ) -> Result<RegistryUser, HttpError>;
+    ) -> impl Future<Output = Result<RegistryUser, HttpError>>;
 }

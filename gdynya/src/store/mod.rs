@@ -7,7 +7,7 @@ use crate::{
     HttpError,
 };
 
-pub mod s3;
+pub mod aws;
 
 pub trait Store {
     fn health_check(&self) -> impl Future<Output = Result<(), HttpError>> + Send;

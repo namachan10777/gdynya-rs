@@ -322,7 +322,7 @@ async fn access_log_on_request<B>(
 }
 
 async fn run(opts: Opts) -> anyhow::Result<()> {
-    let store = gdynya::store::s3::S3Store::new(opts.objstore, opts.objstore_endpoint).await;
+    let store = gdynya::store::aws::AwsStore::new(opts.objstore, opts.objstore_endpoint).await;
     let auth_rules = fs::read_to_string(&opts.rules).await?;
     let auth_rules = serde_yaml::from_str(&auth_rules)?;
     let auth = gdynya::auth::github::GitHubAuth::new_from_config(auth_rules);

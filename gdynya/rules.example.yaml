@@ -4,10 +4,10 @@ gdynya:
   write: !is
     user: namachan10777
 gdynya-gh-credential:
-  read: !is
-    user: namachan10777
+  read: !in-orgs
+    user: arkedge
   write: !is
-    user: namachan10777
+    user: arkedge
 foo:
   read: !is
     user: namachan10777

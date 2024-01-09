@@ -2,6 +2,7 @@
 use std::{collections::HashMap, fmt::Display, str::FromStr};
 
 use serde::{Deserialize, Serialize};
+use sha2::Sha256;
 use valuable::Valuable;
 
 #[derive(Serialize, Deserialize)]
@@ -215,4 +216,37 @@ pub struct RegistryUser {
     pub id: u32,
     pub login: String,
     pub name: String,
+}
+
+impl GetIndexResponse {
+    pub fn new(index: &PostIndexRequest, body: &[u8]) -> Self {
+        use digest::Digest;
+        let mut hasher = Sha256::new();
+        hasher.update(&body);
+        Self {
+            name: index.name.clone(),
+            vers: index.vers.clone(),
+            deps: index
+                .deps
+                .iter()
+                .map(|dep| GetDependency {
+                    name: dep.name.clone(),
+                    req: dep.version_req.clone(),
+                    features: dep.features.clone(),
+                    default_features: dep.default_features,
+                    optional: dep.optional,
+                    target: dep.target.clone(),
+                    kind: dep.kind,
+                    package: None,
+                    registry: None,
+                })
+                .collect(),
+            features: index.features.clone(),
+            links: index.links.clone(),
+            yanked: false,
+            cksum: hex::encode(hasher.finalize()),
+            v: 2,
+            rust_version: index.rust_version.clone(),
+        }
+    }
 }
