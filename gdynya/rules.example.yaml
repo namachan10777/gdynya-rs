@@ -1,10 +1,15 @@
 gdynya:
   read: !is
-      user: namachan10777
+    user: namachan10777
   write: !is
-      user: namachan10777
+    user: namachan10777
 gdynya-gh-credential:
   read: !is
-      user: namachan10777
+    user: namachan10777
   write: !is
-      user: namachan10777
+    user: namachan10777
+foo:
+  read: !is
+    user: namachan10777
+  write: !is
+    user: namachan10777

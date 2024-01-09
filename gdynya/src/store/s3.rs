@@ -118,7 +118,6 @@ impl S3Store {
     }
 }
 
-#[async_trait::async_trait]
 impl super::Store for S3Store {
     async fn health_check(&self) -> Result<(), HttpError> {
         self.client

@@ -1,2 +1,6 @@
 [build]
 rustflags = ["--cfg", "tracing_unstable"]
+
+[registries]
+gdynya = { index = "sparse+http://localhost:8080/" }
+

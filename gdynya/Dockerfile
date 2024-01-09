@@ -1,4 +1,4 @@
-FROM rust:1.72.0-slim-bullseye as chef
+FROM rust:1.75.0-slim-bullseye as chef
 RUN cargo install cargo-chef
 
 FROM chef as plan

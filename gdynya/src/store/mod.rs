@@ -1,3 +1,5 @@
+use futures_util::Future;
+
 use crate::{
     api_schema::{
         CrateName, GetIndexResponse, PostIndexRequest, QueriedPackage, SearchCratesQuery,
@@ -7,27 +9,44 @@ use crate::{
 
 pub mod s3;
 
-#[async_trait::async_trait]
 pub trait Store {
-    async fn health_check(&self) -> Result<(), HttpError>;
-    async fn put(&self, index: &PostIndexRequest, body: Vec<u8>) -> Result<(), HttpError>;
-    async fn get_index(&self, name: &CrateName) -> Result<Vec<GetIndexResponse>, HttpError>;
-    async fn set_yank(
+    fn health_check(&self) -> impl Future<Output = Result<(), HttpError>> + Send;
+    fn put(
+        &self,
+        index: &PostIndexRequest,
+        body: Vec<u8>,
+    ) -> impl Future<Output = Result<(), HttpError>> + Send;
+    fn get_index(
+        &self,
+        name: &CrateName,
+    ) -> impl Future<Output = Result<Vec<GetIndexResponse>, HttpError>> + Send;
+    fn set_yank(
         &self,
         name: &CrateName,
         version: semver::Version,
         yanked: bool,
-    ) -> Result<(), HttpError>;
-    async fn get_crate(
+    ) -> impl Future<Output = Result<(), HttpError>> + Send;
+    fn get_crate(
         &self,
         name: &CrateName,
         version: semver::Version,
-    ) -> Result<Vec<u8>, HttpError>;
-    async fn get_owners(&self, name: &CrateName) -> Result<Vec<String>, HttpError>;
-    async fn add_owner(&self, name: &CrateName, owner: Vec<String>) -> Result<(), HttpError>;
-    async fn delete_owner(&self, name: &CrateName, owner: Vec<String>) -> Result<(), HttpError>;
-    async fn search(
+    ) -> impl Future<Output = Result<Vec<u8>, HttpError>> + Send;
+    fn get_owners(
+        &self,
+        name: &CrateName,
+    ) -> impl Future<Output = Result<Vec<String>, HttpError>> + Send;
+    fn add_owner(
+        &self,
+        name: &CrateName,
+        owner: Vec<String>,
+    ) -> impl Future<Output = Result<(), HttpError>> + Send;
+    fn delete_owner(
+        &self,
+        name: &CrateName,
+        owner: Vec<String>,
+    ) -> impl Future<Output = Result<(), HttpError>> + Send;
+    fn search(
         &self,
         query: &SearchCratesQuery,
-    ) -> Result<(Vec<QueriedPackage>, usize), HttpError>;
+    ) -> impl Future<Output = Result<(Vec<QueriedPackage>, usize), HttpError>> + Send;
 }
