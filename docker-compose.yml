@@ -13,7 +13,7 @@ services:
             - RULES=/etc/gdynya/rules.yaml
         volumes:
             - type: bind
-              source: gdynya/rules.example.yaml
+              source: ./gdynya/rules.example.yaml
               target: /etc/gdynya/rules.yaml
         ports:
             - 8080:8080
@@ -41,10 +41,5 @@ services:
         ports:
             - 9100:9100
             - 9200:9200
-
-    ui:
-        build: gdynya-ui
-        ports:
-            - 3000:3000
 volumes:
     gdynya: {}

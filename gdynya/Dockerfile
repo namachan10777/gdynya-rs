@@ -11,7 +11,7 @@ WORKDIR /work
 COPY --from=plan /work/recipe.json recipe.json
 RUN cargo chef cook --release --features s3 --recipe-path recipe.json
 COPY . .
-RUN cargo build --release -p gdynya
+RUN cargo build --release --features s3
 
 FROM debian:bookworm-slim
 RUN apt-get update && \
