@@ -1,9 +1,9 @@
 use axum::{
     extract::FromRequestParts,
-    headers::Header,
-    http::{request::Parts, HeaderValue},
+    http::{HeaderValue, request::Parts},
     response::{IntoResponse, Response},
 };
+use headers::Header;
 
 #[derive(Clone)]
 pub struct RawAuthorization(String);
@@ -19,16 +19,16 @@ impl Header for RawAuthorization {
         &axum::http::header::AUTHORIZATION
     }
 
-    fn decode<'i, I>(values: &mut I) -> Result<Self, axum::headers::Error>
+    fn decode<'i, I>(values: &mut I) -> Result<Self, headers::Error>
     where
         Self: Sized,
         I: Iterator<Item = &'i HeaderValue>,
     {
-        let value = values.next().ok_or_else(axum::headers::Error::invalid)?;
+        let value = values.next().ok_or_else(headers::Error::invalid)?;
         Ok(Self(
             value
                 .to_str()
-                .map_err(|_| axum::headers::Error::invalid())?
+                .map_err(|_| headers::Error::invalid())?
                 .trim()
                 .to_string(),
         ))
@@ -48,7 +48,7 @@ impl<T: CustomHeader> CustomHeader for OptionalHeader<T> {
         T::name()
     }
 
-    fn decode<'i, I>(values: &mut I) -> Result<Self, axum::headers::Error>
+    fn decode<'i, I>(values: &mut I) -> Result<Self, headers::Error>
     where
         Self: Sized,
         I: Iterator<Item = &'i HeaderValue>,
@@ -71,14 +71,14 @@ impl<T: CustomHeader> CustomHeader for OptionalHeader<T> {
 pub trait CustomHeader: Sized {
     fn name() -> &'static str;
     fn encode<E: Extend<HeaderValue>>(&self, values: &mut E);
-    fn decode<'i, I>(values: &mut I) -> Result<Self, axum::headers::Error>
+    fn decode<'i, I>(values: &mut I) -> Result<Self, headers::Error>
     where
         Self: Sized,
         I: Iterator<Item = &'i HeaderValue>;
 }
 
 impl<T: Header> CustomHeader for T {
-    fn decode<'i, I>(values: &mut I) -> Result<Self, axum::headers::Error>
+    fn decode<'i, I>(values: &mut I) -> Result<Self, headers::Error>
     where
         Self: Sized,
         I: Iterator<Item = &'i HeaderValue>,
@@ -99,7 +99,7 @@ pub struct CustomTypedHeader<T>(pub T);
 
 enum CustomTypedHeaderRejectionReason {
     Missing,
-    Error(axum::headers::Error),
+    Error(headers::Error),
 }
 
 pub struct CustomTypedHeaderRejection {
@@ -126,7 +126,6 @@ impl std::fmt::Display for CustomTypedHeaderRejection {
     }
 }
 
-#[async_trait::async_trait]
 impl<T, S> FromRequestParts<S> for CustomTypedHeader<T>
 where
     T: CustomHeader,
@@ -158,16 +157,16 @@ impl CustomHeader for XForwardedHost {
         "X-Forwarded-Host"
     }
 
-    fn decode<'i, I>(values: &mut I) -> Result<Self, axum::headers::Error>
+    fn decode<'i, I>(values: &mut I) -> Result<Self, headers::Error>
     where
         Self: Sized,
         I: Iterator<Item = &'i HeaderValue>,
     {
         let value = values
             .next()
-            .ok_or_else(axum::headers::Error::invalid)?
+            .ok_or_else(headers::Error::invalid)?
             .to_str()
-            .map_err(|_| axum::headers::Error::invalid())?;
+            .map_err(|_| headers::Error::invalid())?;
         Ok(Self(value.into()))
     }
 
@@ -183,16 +182,16 @@ impl CustomHeader for XForwardedProto {
         "X-Forwarded-Proto"
     }
 
-    fn decode<'i, I>(values: &mut I) -> Result<Self, axum::headers::Error>
+    fn decode<'i, I>(values: &mut I) -> Result<Self, headers::Error>
     where
         Self: Sized,
         I: Iterator<Item = &'i HeaderValue>,
     {
         let value = values
             .next()
-            .ok_or_else(axum::headers::Error::invalid)?
+            .ok_or_else(headers::Error::invalid)?
             .to_str()
-            .map_err(|_| axum::headers::Error::invalid())?;
+            .map_err(|_| headers::Error::invalid())?;
         Ok(Self(value.into()))
     }
 

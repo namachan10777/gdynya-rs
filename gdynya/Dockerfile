@@ -1,4 +1,4 @@
-FROM rust:1.75.0-slim-bullseye as chef
+FROM rust:1.86.0-slim-bookworm as chef
 RUN cargo install cargo-chef
 
 FROM chef as plan
@@ -13,7 +13,7 @@ RUN cargo chef cook --release --features s3 --recipe-path recipe.json
 COPY . .
 RUN cargo build --release -p gdynya
 
-FROM debian:bullseye-slim
+FROM debian:bookworm-slim
 RUN apt-get update && \
     apt-get install -qy ca-certificates curl && \
     apt-get clean && \

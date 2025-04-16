@@ -1,9 +1,9 @@
 use futures_util::Future;
 
 use crate::{
+    HttpError,
     api_schema::{CrateName, RegistryUser},
     axum_aux::RawAuthorization,
-    HttpError,
 };
 
 pub mod github;

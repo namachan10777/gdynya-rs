@@ -1,7 +1,7 @@
 use std::fmt::{Debug, Display};
 
-use axum::{http::StatusCode, response::IntoResponse, Json};
-use serde::{ser::SerializeStruct, Serialize};
+use axum::{Json, http::StatusCode, response::IntoResponse};
+use serde::{Serialize, ser::SerializeStruct};
 
 #[derive(Debug, Clone, thiserror::Error)]
 pub struct HttpError {
@@ -12,12 +12,10 @@ pub struct HttpError {
     pub contexts: Vec<String>,
 }
 
-#[async_trait::async_trait]
 pub trait ResponseValidatable: Sized {
-    async fn validate(self) -> Result<Self, HttpError>;
+    fn validate(self) -> impl Future<Output = Result<Self, HttpError>> + Send;
 }
 
-#[async_trait::async_trait]
 impl ResponseValidatable for reqwest::Response {
     async fn validate(self) -> Result<Self, HttpError> {
         if self.status().is_success() {

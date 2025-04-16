@@ -1,10 +1,10 @@
 use futures_util::Future;
 
 use crate::{
+    HttpError,
     api_schema::{
         CrateName, GetIndexResponse, PostIndexRequest, QueriedPackage, SearchCratesQuery,
     },
-    HttpError,
 };
 
 pub mod aws;

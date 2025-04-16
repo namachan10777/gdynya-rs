@@ -7,10 +7,10 @@ use tracing::{debug, info};
 use valuable::Valuable;
 
 use crate::{
+    HttpError, ToHttpError, ToHttpErrorOption,
     api_schema::{
         CrateName, GetIndexResponse, PostIndexRequest, QueriedPackage, SearchCratesQuery,
     },
-    HttpError, ToHttpError, ToHttpErrorOption,
 };
 
 #[derive(Clone)]

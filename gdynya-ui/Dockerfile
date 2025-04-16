@@ -1,4 +1,4 @@
-FROM node:20.6-bullseye-slim AS base
+FROM node:22-bookworm-slim AS base
 RUN yarn global add pnpm
 
 FROM base AS deps

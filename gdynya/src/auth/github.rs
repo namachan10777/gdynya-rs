@@ -4,9 +4,9 @@ use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    HttpError, ResponseValidatable, ToHttpError, ToHttpErrorOption,
     api_schema::{CrateName, RegistryUser},
     axum_aux::RawAuthorization,
-    HttpError, ResponseValidatable, ToHttpError, ToHttpErrorOption,
 };
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -134,7 +134,7 @@ impl super::Auth for GitHubAuth {
             crate_name: name.normalized.clone(),
             token: token.value().to_string(),
         };
-        let result = if let Some(result) = self.read_cache.get(&key) {
+        let result = if let Some(result) = self.read_cache.get(&key).await {
             result
         } else {
             let result = self.test_read(&key).await.unwrap_or(false);
@@ -162,7 +162,7 @@ impl super::Auth for GitHubAuth {
             crate_name: name.normalized.clone(),
             token: token.value().to_string(),
         };
-        let result = if let Some(result) = self.write_cache.get(&key) {
+        let result = if let Some(result) = self.write_cache.get(&key).await {
             result
         } else {
             let result = self.test_write(&key).await.unwrap_or(false);

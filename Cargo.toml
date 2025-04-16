@@ -4,4 +4,4 @@ members = [
     "gdynya-gh-credential",
 ]
 
-resolver = "2"
+resolver = "3"
